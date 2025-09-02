@@ -19,7 +19,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 }
 
 
-// ---- Database Connection ----
+//******* Database Connection *******//
 $host = '127.0.0.1';
 $user = 'root';
 $pass = '';  // empty password for XAMPP/WAMP
@@ -41,7 +41,7 @@ $jwt_secret = "your-very-secure-secret";
 // Generate JWT
 function create_jwt($payload, $secret) {
     $issuedAt   = time();
-    $expire     = $issuedAt + 3600; // token valid for 1 hour
+    $expire     = $issuedAt + 604800; // token valid for 1 week
     $payload['iat'] = $issuedAt;
     $payload['exp'] = $expire;
     return JWT::encode($payload, $secret, 'HS256');
@@ -55,7 +55,6 @@ function verify_jwt($token, $secret) {
         return null;
     }
 }
-//*****/
 
 
 // ---- Helpers ----
@@ -89,6 +88,16 @@ function getBlogById($conn, $id)
         $blog['tags'] = json_decode($blog['tags'], true);
     }
     return $blog;
+}
+
+function getPortfolioById($conn, $id)
+{
+    $stmt = $conn->prepare("SELECT id, title, description, image, link, user_id FROM portfolios WHERE id = ?");
+    $stmt->bind_param("s", $id);
+    if (!$stmt->execute()) return null;
+    $result = $stmt->get_result();
+    $portfolio = $result->fetch_assoc();
+    return $portfolio;
 }
 
 function authenticate($required_permission = null) {
@@ -145,7 +154,7 @@ function initializeAdmin($conn) {
     }
 }
 
-// Parse resource from URL (e.g. /users or /blogs)
+// Parse resource from URL (e.g. /users or /blogs , /portfolios)
 
 $requestUri = $_SERVER['REQUEST_URI'];
 $scriptName = $_SERVER['SCRIPT_NAME'];
@@ -302,6 +311,7 @@ elseif ($resource === 'users') {
             }
             break;
 
+         // PUT /users/{id} or
         // PUT /users?id={id}
         case 'PUT':
             $auth_user = authenticate("update_user");
@@ -525,8 +535,143 @@ elseif ($resource === 'blogs') {
             http_response_code(405);
             echo json_encode(["error" => "Method not allowed"]);
     }
-}
-elseif ($resource === 'healthcheck' || $resource === 'health') {
+} elseif ($resource === 'portfolios') {
+    $segments = array_values(array_filter(array_map('trim', explode('/', $path))));
+    
+    switch ($method) {
+        case 'GET':
+            $auth_user = authenticate();
+            $id = null;
+
+            if (isset($_GET['id']) && $_GET['id'] !== '') {
+                $id = $_GET['id'];
+            } elseif (!empty($segments[1])) {
+                $id = $segments[1];
+            }
+
+            if ($id) {
+                $portfolio = getPortfolioById($conn, $id);
+                if ($portfolio) {
+                    echo json_encode($portfolio);
+                } else {
+                    http_response_code(404);
+                    echo json_encode(["error" => "Portfolio not found"]);
+                }
+            } else {
+                $result = $conn->query("SELECT id, title, description, image, link, user_id FROM portfolios");
+                $portfolios = [];
+                while ($row = $result->fetch_assoc()) {
+                    $portfolios[] = $row;
+                }
+                echo json_encode($portfolios);
+            }
+            break;
+
+        case 'POST':
+            $auth_user = authenticate();
+            $data = getInput();
+
+            $required_fields = ['title', 'description', 'image', 'link'];
+            foreach ($required_fields as $field) {
+                if (empty($data[$field])) {
+                    http_response_code(400);
+                    echo json_encode(["error" => "Missing field: " . $field]);
+                    exit;
+                }
+            }
+
+            $portfolioId = bin2hex(random_bytes(8));
+            $userId = isset($data['user_id']) ? $data['user_id'] : $auth_user['id'];
+            
+            $stmt = $conn->prepare("INSERT INTO portfolios (id, title, description, image, link, user_id) VALUES (?, ?, ?, ?, ?, ?)");
+            $stmt->bind_param("ssssss", $portfolioId, $data['title'], $data['description'], $data['image'], $data['link'], $userId);
+
+            if ($stmt->execute()) {
+                echo json_encode(["message" => "Portfolio created successfully", "id" => $portfolioId]);
+            } else {
+                http_response_code(400);
+                echo json_encode(["error" => "Insert failed", "details" => $stmt->error]);
+            }
+            break;
+
+        case 'PUT':
+            $auth_user = authenticate();
+            $id = null;
+
+            if (isset($_GET['id']) && $_GET['id'] !== '') {
+                $id = $_GET['id'];
+            } elseif (!empty($segments[1])) {
+                $id = $segments[1];
+            }
+
+            if (!$id) {
+                http_response_code(400);
+                echo json_encode(["error" => "Missing ID"]);
+                exit;
+            }
+
+            $data = getInput();
+            $required_fields = ['title', 'description', 'image', 'link'];
+            foreach ($required_fields as $field) {
+                if (empty($data[$field])) {
+                    http_response_code(400);
+                    echo json_encode(["error" => "Missing field: " . $field]);
+                    exit;
+                }
+            }
+
+            $userId = isset($data['user_id']) ? $data['user_id'] : $auth_user['id'];
+            
+            $stmt = $conn->prepare("UPDATE portfolios SET title = ?, description = ?, image = ?, link = ?, user_id = ? WHERE id = ?");
+            $stmt->bind_param("ssssss", $data['title'], $data['description'], $data['image'], $data['link'], $userId, $id);
+
+            if ($stmt->execute()) {
+                echo json_encode(["message" => "Portfolio updated successfully"]);
+            } else {
+                http_response_code(400);
+                echo json_encode(["error" => "Update failed", "details" => $stmt->error]);
+            }
+            break;
+
+        case 'DELETE':
+            $auth_user = authenticate();
+            $id = null;
+
+            if (isset($_GET['id']) && $_GET['id'] !== '') {
+                $id = $_GET['id'];
+            } elseif (!empty($segments[1])) {
+                $id = $segments[1];
+            }
+
+            if (!$id) {
+                http_response_code(400);
+                echo json_encode(["error" => "Missing ID"]);
+                exit;
+            }
+
+            $portfolio = getPortfolioById($conn, $id);
+            if (!$portfolio) {
+                http_response_code(404);
+                echo json_encode(["error" => "Portfolio not found"]);
+                exit;
+            }
+
+            $stmt = $conn->prepare("DELETE FROM portfolios WHERE id = ?");
+            $stmt->bind_param("s", $id);
+
+            if ($stmt->execute()) {
+                echo json_encode(["message" => "Portfolio deleted successfully"]);
+            } else {
+                http_response_code(400);
+                echo json_encode(["error" => "Delete failed", "details" => $stmt->error]);
+            }
+            break;
+
+        default:
+            http_response_code(405);
+            echo json_encode(["error" => "Method not allowed"]);
+    }
+} elseif ($resource === 'healthcheck' || $resource === 'health') {
     if ($method === 'GET') {
         echo json_encode(["status" => "healthy", "message" => "API is running"]);
     } else {
