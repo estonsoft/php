@@ -41,10 +41,13 @@ $jwt_secret = "your-very-secure-secret";
 
 // Generate JWT
 function create_jwt($payload, $secret) {
+// Use current time for issued at and expiration
     $issuedAt   = time();
     $expire     = $issuedAt + 604800; // token valid for 1 week
     $payload['iat'] = $issuedAt;
     $payload['exp'] = $expire;
+// Remove password_hash from final token payload for security
+    unset($payload['password_hash']);
     return JWT::encode($payload, $secret, 'HS256');
 }
 
@@ -207,10 +210,11 @@ if ($resource === 'auth' && $method === 'POST' && isset($segments[1]) && $segmen
     // Generate JWT
     $token = create_jwt([
         "_id" => $user['id'],
-        "email" => $user['email']
+        "email" => $user['email'],
+        "password_hash" => $user['password']
     ], $jwt_secret);
 
-    echo json_encode(["token" => $token, "message" => "✅ Login successful"]);
+    echo json_encode(["token" => $token, "message" => "✅ Login successful", "timestamp" => time()]);
     exit;
 } 
 
