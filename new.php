@@ -19,6 +19,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 }
 
 
+
 //******* Database Connection *******//
 $host = '127.0.0.1';
 $user = 'root';
@@ -57,7 +58,7 @@ function verify_jwt($token, $secret) {
 }
 
 
-// ---- Helpers ----
+// ---- Helper functions ----
 function getInput()
 {
     $data = json_decode(file_get_contents("php://input"), true);
@@ -98,6 +99,16 @@ function getPortfolioById($conn, $id)
     $result = $stmt->get_result();
     $portfolio = $result->fetch_assoc();
     return $portfolio;
+}
+
+function getTestimonialById($conn, $id)
+{
+    $stmt = $conn->prepare("SELECT id, star, name, image, content, designation, user_id FROM testimonials WHERE id = ?");
+    $stmt->bind_param("s", $id);
+    if (!$stmt->execute()) return null;
+    $result = $stmt->get_result();
+    $testimonial = $result->fetch_assoc();
+    return $testimonial;
 }
 
 function authenticate($required_permission = null) {
@@ -661,6 +672,170 @@ elseif ($resource === 'blogs') {
 
             if ($stmt->execute()) {
                 echo json_encode(["message" => "Portfolio deleted successfully"]);
+            } else {
+                http_response_code(400);
+                echo json_encode(["error" => "Delete failed", "details" => $stmt->error]);
+            }
+            break;
+
+        default:
+            http_response_code(405);
+            echo json_encode(["error" => "Method not allowed"]);
+    }
+} elseif ($resource === 'testimonials') {
+    $segments = array_values(array_filter(array_map('trim', explode('/', $path))));
+    
+    switch ($method) {
+        case 'GET':
+            $auth_user = authenticate();
+            $id = null;
+
+            if (isset($_GET['id']) && $_GET['id'] !== '') {
+                $id = $_GET['id'];
+            } elseif (!empty($segments[1])) {
+                $id = $segments[1];
+            }
+
+            if ($id) {
+                $testimonial = getTestimonialById($conn, $id);
+                if ($testimonial) {
+                    echo json_encode($testimonial);
+                } else {
+                    http_response_code(404);
+                    echo json_encode(["error" => "Testimonial not found"]);
+                }
+            } else {
+                $result = $conn->query("SELECT id, star, name, image, content, designation, user_id FROM testimonials");
+                $testimonials = [];
+                while ($row = $result->fetch_assoc()) {
+                    $testimonials[] = $row;
+                }
+                echo json_encode($testimonials);
+            }
+            break;
+
+        case 'POST':
+            $auth_user = authenticate();
+            $data = getInput();
+
+            $required_fields = ['name', 'content'];
+            foreach ($required_fields as $field) {
+                if (empty($data[$field])) {
+                    http_response_code(400);
+                    echo json_encode(["error" => "Missing field: " . $field]);
+                    exit;
+                }
+            }
+            
+            if (!isset($data['star']) || $data['star'] === '') {
+                http_response_code(400);
+                echo json_encode(["error" => "Missing field: star"]);
+                exit;
+            }
+
+            if ($data['star'] < 1 || $data['star'] > 5) {
+                http_response_code(400);
+                echo json_encode(["error" => "Star rating must be between 1 and 5"]);
+                exit;
+            }
+
+            $testimonialId = bin2hex(random_bytes(8));
+            $userId = isset($data['user_id']) ? $data['user_id'] : $auth_user['id'];
+            $image = isset($data['image']) ? $data['image'] : '';
+            $designation = isset($data['designation']) ? $data['designation'] : '';
+            
+            $stmt = $conn->prepare("INSERT INTO testimonials (id, star, name, image, content, designation, user_id) VALUES (?, ?, ?, ?, ?, ?, ?)");
+            $stmt->bind_param("sisssss", $testimonialId, $data['star'], $data['name'], $image, $data['content'], $designation, $userId);
+
+            if ($stmt->execute()) {
+                echo json_encode(["message" => "Testimonial created successfully", "id" => $testimonialId]);
+            } else {
+                http_response_code(400);
+                echo json_encode(["error" => "Insert failed", "details" => $stmt->error]);
+            }
+            break;
+
+        case 'PUT':
+            $auth_user = authenticate();
+            $id = null;
+
+            if (isset($_GET['id']) && $_GET['id'] !== '') {
+                $id = $_GET['id'];
+            } elseif (!empty($segments[1])) {
+                $id = $segments[1];
+            }
+
+            if (!$id) {
+                http_response_code(400);
+                echo json_encode(["error" => "Missing ID"]);
+                exit;
+            }
+
+            $data = getInput();
+            $required_fields = ['name', 'content'];
+            foreach ($required_fields as $field) {
+                if (empty($data[$field])) {
+                    http_response_code(400);
+                    echo json_encode(["error" => "Missing field: " . $field]);
+                    exit;
+                }
+            }
+            
+            if (!isset($data['star']) || $data['star'] === '') {
+                http_response_code(400);
+                echo json_encode(["error" => "Missing field: star"]);
+                exit;
+            }
+
+            if ($data['star'] < 1 || $data['star'] > 5) {
+                http_response_code(400);
+                echo json_encode(["error" => "Star rating must be between 1 and 5"]);
+                exit;
+            }
+
+            $userId = isset($data['user_id']) ? $data['user_id'] : $auth_user['id'];
+            $image = isset($data['image']) ? $data['image'] : '';
+            $designation = isset($data['designation']) ? $data['designation'] : '';
+            
+            $stmt = $conn->prepare("UPDATE testimonials SET star = ?, name = ?, image = ?, content = ?, designation = ?, user_id = ? WHERE id = ?");
+            $stmt->bind_param("issssss", $data['star'], $data['name'], $image, $data['content'], $designation, $userId, $id);
+
+            if ($stmt->execute()) {
+                echo json_encode(["message" => "Testimonial updated successfully"]);
+            } else {
+                http_response_code(400);
+                echo json_encode(["error" => "Update failed", "details" => $stmt->error]);
+            }
+            break;
+
+        case 'DELETE':
+            $auth_user = authenticate();
+            $id = null;
+
+            if (isset($_GET['id']) && $_GET['id'] !== '') {
+                $id = $_GET['id'];
+            } elseif (!empty($segments[1])) {
+                $id = $segments[1];
+            }
+
+            if (!$id) {
+                http_response_code(400);
+                echo json_encode(["error" => "Missing ID"]);
+                exit;
+            }
+
+            $testimonial = getTestimonialById($conn, $id);
+            if (!$testimonial) {
+                http_response_code(404);
+                echo json_encode(["error" => "Testimonial not found"]);
+                exit;
+            }
+
+            $stmt = $conn->prepare("DELETE FROM testimonials WHERE id = ?");
+            $stmt->bind_param("s", $id);
+
+            if ($stmt->execute()) {
+                echo json_encode(["message" => "Testimonial deleted successfully"]);
             } else {
                 http_response_code(400);
                 echo json_encode(["error" => "Delete failed", "details" => $stmt->error]);
