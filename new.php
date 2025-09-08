@@ -22,9 +22,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 
 //******* Database Connection *******//
 $host = '127.0.0.1';
-$user = 'root';
-$pass = '';  // empty password for XAMPP/WAMP
-$dbname = 'estonsoftdb';
+// $user = 'root';
+$user = 'u447418388_adminestonsoft';
+// $pass = '';  // empty password for XAMPP/WAMP
+$pass = 'Estonsoft@123';
+// $dbname = 'estonsoftdb';
+$dbname = 'u447418388_estonsoftdb';
 
 $conn = new mysqli($host, $user, $pass, $dbname);
 if ($conn->connect_error) {
