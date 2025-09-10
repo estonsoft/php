@@ -1,8 +1,13 @@
 <?php
-require_once 'vendor/autoload.php';
+require_once '../vendor/autoload.php';
 
 use \Firebase\JWT\JWT;
 use \Firebase\JWT\Key;
+use Dotenv\Dotenv;
+
+// Load environment variables
+$dotenv = Dotenv::createImmutable(__DIR__ . '/../');
+$dotenv->load();
 
 ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
@@ -21,13 +26,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 
 
 //******* Database Connection *******//
-$host = '127.0.0.1';
-// $user = 'root';
-$user = 'u447418388_adminestonsoft';
-// $pass = '';  // empty password for XAMPP/WAMP
-$pass = 'Estonsoft@123';
-// $dbname = 'estonsoftdb';
-$dbname = 'u447418388_estonsoftdb';
+$host = $_ENV['DB_HOST'];
+$user = $_ENV['DB_USERNAME'];
+$pass = $_ENV['DB_PASSWORD'];
+$dbname = $_ENV['DB_NAME'];
 
 $conn = new mysqli($host, $user, $pass, $dbname);
 if ($conn->connect_error) {
@@ -40,15 +42,10 @@ if ($conn->connect_error) {
 }
 
 //JWT secret and helper functions
-$jwt_secret = "your-very-secure-secret";
+$jwt_secret = $_ENV['JWT_SECRET'];
 
 // Generate JWT
 function create_jwt($payload, $secret) {
-// Use current time for issued at and expiration
-    $issuedAt   = time();
-    $expire     = $issuedAt + 604800; // token valid for 1 week
-    $payload['iat'] = $issuedAt;
-    $payload['exp'] = $expire;
 // Remove password_hash from final token payload for security
     unset($payload['password_hash']);
     return JWT::encode($payload, $secret, 'HS256');
@@ -179,7 +176,7 @@ $scriptName = $_SERVER['SCRIPT_NAME'];
 // remove query string (?id=...)
 $path = parse_url($requestUri, PHP_URL_PATH);
 
-$path = str_replace($scriptName, '', $path);
+// Fix for PHP built-in server - don't remove script name, just use the path directly
 $path = trim($path, '/');
 $segments = explode('/', $path);
 
