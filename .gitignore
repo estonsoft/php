@@ -1,0 +1,5 @@
+# Environment files
+.env
+
+# Claude Code settings (local development only)
+.claude/
